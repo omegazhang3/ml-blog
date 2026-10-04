@@ -1,0 +1,60 @@
+# ---- Top-level site settings (MUST come before any [table]) ----
+baseURL = "http://localhost:1313/"
+title = "ML Learning Notes"
+theme = "PaperMod"
+languageCode = "en-us"
+
+# PaperMod search needs the home page to also output JSON
+[outputs]
+  home = ["HTML", "RSS", "JSON"]
+
+# Allow raw HTML (KaTeX) + code highlighting
+[markup]
+  [markup.goldmark.renderer]
+    unsafe = true
+  [markup.highlight]
+    style = "github-dark"
+    lineNos = true
+    codeFences = true
+    guessSyntax = true
+    tabWidth = 2
+
+[params]
+  defaultTheme = "auto"          # auto light/dark
+  ShowReadingTime = true
+  ShowBreadCrumbs = true
+  ShowCodeCopyButtons = true     # copy button on code blocks
+  ShowToc = true                 # table of contents
+  math = true                    # enable KaTeX (used by layouts/partials/extend_head.html)
+
+  [params.homeInfoParams]
+    Title = "ML Learning Notes 📘"
+    Content = "My private notes while learning machine learning. Math, code, and experiments."
+
+  # Enable fuse.js search
+  [params.fuseOpts]
+    isCaseSensitive = false
+    shouldSort = true
+    location = 0
+    distance = 1000
+    threshold = 0.4
+    minMatchCharLength = 0
+    keys = ["title", "permalink", "summary", "content"]
+
+[[menu.main]]
+  identifier = "posts"
+  name = "Posts"
+  url = "/posts/"
+  weight = 10
+
+[[menu.main]]
+  identifier = "search"
+  name = "Search"
+  url = "/search/"
+  weight = 20
+
+[[menu.main]]
+  identifier = "tags"
+  name = "Tags"
+  url = "/tags/"
+  weight = 30
