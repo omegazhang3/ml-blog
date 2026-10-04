@@ -297,4 +297,171 @@ print(softmax_with_temperature(x, T=5.0))  # [0.418, 0.342, 0.240]  更平滑
 | $T < 1$ | 分布更尖锐，更自信 | 模型蒸馏（学生模型） |
 | $T = 1$ | 标准 Softmax | 常规训练 |
 | $T > 1$ | 分布更平滑 | 探索性采样 |
-| $T \to
+| $T \to 0$ | 趋近于 argmax（one-hot） | 确定性输出 |
+| $T \to \infty$ | 趋近于均匀分布 | 完全随机 |
+
+> 💡 **温度的直觉**：温度越高，模型越"犹豫"（概率越平均）；温度越低，模型越"自信"（概率越集中）。这与物理中的热力学分布同源。
+
+### 7.2 LogSoftmax
+
+在实际工程中，常用 `LogSoftmax` 代替 `Softmax`，即对 Softmax 的结果取对数：
+
+$$ \text{LogSoftmax}(x_i) = \log\left(\frac{e^{x_i}}{\sum_j e^{x_j}}\right) = x_i - \log\sum_j e^{x_j} $$
+
+```python
+import torch.nn.functional as F
+
+logits = torch.tensor([2.0, 1.0, 0.1])
+log_probs = F.log_softmax(logits, dim=0)
+print(log_probs)  # tensor([-0.4170, -1.4170, -2.3170])
+```
+
+**为什么用 LogSoftmax？**
+
+1. **数值稳定**：避免概率值过小导致的下溢
+2. **计算高效**：交叉熵损失中需要 $\log p$，直接用 LogSoftmax 省去一次对数运算
+3. **配合 `NLLLoss`**：`LogSoftmax + NLLLoss` 等价于 `CrossEntropyLoss`
+
+```python
+# 以下两种写法完全等价
+loss_a = F.cross_entropy(logits, target)
+
+log_probs = F.log_softmax(logits, dim=0)
+loss_b = F.nll_loss(log_probs.unsqueeze(0), target)
+```
+
+---
+
+## 八、实际应用场景
+
+### 8.1 图像分类
+
+多分类模型（ResNet、ViT 等）的输出层几乎都用 Softmax：
+
+```python
+import torch.nn as nn
+
+model = nn.Sequential(
+    nn.Linear(512, 10),   # 10 个类别的 logits
+    # 注意：训练时通常不显式加 Softmax，
+    # 因为 CrossEntropyLoss 内部已包含
+)
+
+# 推理时才显式转为概率
+logits = model(features)
+probs = F.softmax(logits, dim=1)
+pred = probs.argmax(dim=1)   # 预测类别
+```
+
+> ⚠️ **常见错误**：训练时在模型里加了 Softmax，又用 `CrossEntropyLoss`，会导致"双重 Softmax"，训练效果变差！
+
+### 8.2 注意力机制（Attention）
+
+Transformer 的核心——注意力权重就是用 Softmax 归一化的：
+
+$$ \text{Attention}(Q, K, V) = \text{Softmax}\left(\frac{QK^\top}{\sqrt{d_k}}\right) V $$
+
+```python
+scores = Q @ K.transpose(-2, -1) / (d_k ** 0.5)
+weights = F.softmax(scores, dim=-1)   # 每一行的注意力权重和为 1
+output = weights @ V
+```
+
+### 8.3 强化学习中的策略
+
+在策略梯度方法中，Softmax 把动作价值转为动作选择的概率分布：
+
+```python
+action_logits = policy_net(state)
+action_probs = F.softmax(action_logits, dim=-1)
+action = torch.multinomial(action_probs, num_samples=1)  # 按概率采样
+```
+
+### 8.4 知识蒸馏
+
+用带温度的 Softmax 让学生模型学习教师模型的"软标签"：
+
+```python
+T = 3.0
+teacher_probs = F.softmax(teacher_logits / T, dim=1)   # 软化的教师输出
+student_log = F.log_softmax(student_logits / T, dim=1)
+distill_loss = F.kl_div(student_log, teacher_probs) * (T * T)
+```
+
+---
+
+## 九、常见陷阱与注意事项 ⚠️
+
+### 9.1 数值溢出
+
+```python
+# ❌ 错误：大数值直接 exp 会溢出为 inf
+x = np.array([1000, 1001, 1002])
+np.exp(x) / np.sum(np.exp(x))   # nan！
+
+# ✅ 正确：减去最大值
+softmax_stable(x)   # 正常输出
+```
+
+### 9.2 双重 Softmax
+
+```python
+# ❌ 错误：模型已输出概率，又传给 CrossEntropyLoss
+probs = F.softmax(model(x), dim=1)
+loss = F.cross_entropy(probs, target)   # 错！cross_entropy 期望 logits
+
+# ✅ 正确：直接传 logits
+logits = model(x)
+loss = F.cross_entropy(logits, target)
+```
+
+### 9.3 dim 参数搞错
+
+```python
+# batch_size=2, num_classes=3
+logits = torch.randn(2, 3)
+
+F.softmax(logits, dim=0)   # ❌ 对 batch 维归一化（错误！）
+F.softmax(logits, dim=1)   # ✅ 对类别维归一化（正确）
+```
+
+> 💡 **口诀**：分类任务中，`dim` 要指向**类别所在的维度**。
+
+---
+
+## 十、常见问题 FAQ
+
+**Q1：Softmax 和 argmax 有什么区别？**
+
+- `argmax` 直接返回最大值的**索引**（硬决策，不可导）
+- `Softmax` 返回一个**概率分布**（软决策，可导），训练中必须用 Softmax 才能反向传播
+
+**Q2：为什么训练时推荐用 `CrossEntropyLoss` 而不手动写 Softmax？**
+
+因为 `CrossEntropyLoss` 内部融合了 `LogSoftmax + NLLLoss`，数值更稳定、计算更高效，还能避免双重 Softmax 的坑。
+
+**Q3：Softmax 一定要配交叉熵吗？**
+
+绝大多数多分类场景是的，因为两者组合后梯度形式最简洁（$p_i - y_i$），训练稳定。但在某些场景（如蒸馏、强化学习）也会配 KL 散度等其他损失。
+
+**Q4：输入全是负数，Softmax 还能用吗？**
+
+可以。$e^x$ 对任意实数都为正，负数输入只是让对应概率变小，不影响归一化。
+
+---
+
+## 十一、总结
+
+| 要点 | 内容 |
+|------|------|
+| **本质** | 把实数向量转为概率分布 |
+| **公式** | $\text{Softmax}(x_i) = \dfrac{e^{x_i}}{\sum_j e^{x_j}}$ |
+| **三大特性** | 输出为概率、保持单调、指数放大 |
+| **数值稳定** | 计算前减去最大值 |
+| **黄金搭档** | Softmax + CrossEntropy（梯度为 $p_i - y_i$） |
+| **vs Sigmoid** | 多分类互斥用 Softmax，多标签独立用 Sigmoid |
+| **工程实践** | 用 `CrossEntropyLoss`，别手动加 Softmax |
+
+Softmax 看似简单，却贯穿了分类、注意力、强化学习、知识蒸馏等几乎所有深度学习的核心场景。理解它的原理、数值技巧和使用陷阱，是打好深度学习基础的关键一步。
+
+> 📌 **下一篇预告**：交叉熵损失（Cross-Entropy Loss）—— 揭开 Softmax 最佳拍档的神秘面纱。
