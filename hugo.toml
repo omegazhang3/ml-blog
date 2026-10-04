@@ -1,5 +1,5 @@
 # ---- Top-level site settings (MUST come before any [table]) ----
-baseURL = "http://localhost:1313/"
+baseURL = "https://omegazhang3.github.io/ml-blog/"
 title = "ML Learning Notes"
 theme = "PaperMod"
 languageCode = "en-us"
